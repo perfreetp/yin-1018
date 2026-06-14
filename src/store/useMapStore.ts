@@ -2,6 +2,23 @@ import { create } from 'zustand';
 import type { LayerType, District, POI, CameraPosition, CameraTarget } from '@/types';
 import { districts } from '@/mock/events';
 
+export interface PatrolPoint {
+  id: string;
+  name: string;
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  stayDuration: number;
+}
+
+export interface PatrolRoute {
+  id: string;
+  name: string;
+  points: PatrolPoint[];
+  createdAt: number;
+}
+
+export type PatrolPlayStatus = 'idle' | 'flying' | 'staying' | 'paused';
+
 export type PresetName = 'daily' | 'rush' | 'emergency' | 'night';
 
 type ActiveLayers = Record<LayerType, boolean>;
@@ -38,6 +55,8 @@ interface PersistedConfig {
   visibleDistrict: District | null;
   cameraPosition: CameraPosition;
   cameraTarget: CameraTarget;
+  currentPreset: PresetName | null;
+  playbackSpeed: number;
 }
 
 const STORAGE_KEY = 'dtcity_map_config';
@@ -136,6 +155,12 @@ interface MapState {
   focusLabel: string | null;
   flyTarget: FlyTarget | null;
   pendingFocus: PendingFocus | null;
+  patrolRoutes: PatrolRoute[];
+  currentPatrolRouteId: string | null;
+  patrolPlayStatus: PatrolPlayStatus;
+  patrolCurrentPointIndex: number;
+  patrolPaused: boolean;
+  patrolStayRemaining: number;
 
   toggleLayer: (layer: LayerType) => void;
   setAllLayers: (layers: Partial<ActiveLayers>) => void;
@@ -164,6 +189,18 @@ interface MapState {
     label?: string,
   ) => void;
   consumePendingFocus: () => PendingFocus | null;
+
+  addPatrolRoute: (name: string) => void;
+  deletePatrolRoute: (id: string) => void;
+  addPatrolPoint: (routeId: string, point: Omit<PatrolPoint, 'id'>) => void;
+  removePatrolPoint: (routeId: string, pointId: string) => void;
+  setCurrentPatrolRoute: (id: string | null) => void;
+  startPatrol: () => void;
+  pausePatrol: () => void;
+  resumePatrol: () => void;
+  stopPatrol: () => void;
+  advancePatrolToNext: () => void;
+  setPatrolStayRemaining: (ms: number) => void;
 }
 
 const persisted = loadPersistedConfig();
@@ -172,9 +209,9 @@ export const useMapStore = create<MapState>((set, get) => {
   const initialState: MapState = {
     activeLayers: persisted.activeLayers ?? defaultLayers,
     visibleDistrict: persisted.visibleDistrict ?? districts[0] ?? null,
-    currentPreset: null,
+    currentPreset: persisted.currentPreset ?? null,
     currentTime: new Date(),
-    playbackSpeed: 1,
+    playbackSpeed: persisted.playbackSpeed ?? 1,
     playhead: null,
     hoveredBuildingId: null,
     clickedPOI: null,
@@ -183,6 +220,76 @@ export const useMapStore = create<MapState>((set, get) => {
     focusLabel: null,
     flyTarget: null,
     pendingFocus: null,
+    patrolRoutes: [
+      {
+        id: 'route-1',
+        name: '重点区域巡检',
+        createdAt: Date.now(),
+        points: [
+          {
+            id: 'pt-1-1',
+            name: '中心广场',
+            position: { x: 0, y: 60, z: 80 },
+            target: { x: 0, y: 0, z: 0 },
+            stayDuration: 3000,
+          },
+          {
+            id: 'pt-1-2',
+            name: '东湖公园',
+            position: { x: 60, y: 50, z: 60 },
+            target: { x: 50, y: 0, z: 0 },
+            stayDuration: 3000,
+          },
+          {
+            id: 'pt-1-3',
+            name: '西站枢纽',
+            position: { x: -60, y: 50, z: 60 },
+            target: { x: -50, y: 0, z: 0 },
+            stayDuration: 3000,
+          },
+          {
+            id: 'pt-1-4',
+            name: '北湖工业园',
+            position: { x: 0, y: 50, z: 80 },
+            target: { x: 0, y: 0, z: 70 },
+            stayDuration: 3000,
+          },
+        ],
+      },
+      {
+        id: 'route-2',
+        name: '管网安全巡检',
+        createdAt: Date.now(),
+        points: [
+          {
+            id: 'pt-2-1',
+            name: '南山供水站',
+            position: { x: 40, y: 50, z: -70 },
+            target: { x: 30, y: 0, z: -60 },
+            stayDuration: 3000,
+          },
+          {
+            id: 'pt-2-2',
+            name: '新城泵站',
+            position: { x: 80, y: 50, z: -40 },
+            target: { x: 70, y: 0, z: -30 },
+            stayDuration: 3000,
+          },
+          {
+            id: 'pt-2-3',
+            name: '西湖管网监测点',
+            position: { x: -60, y: 50, z: 60 },
+            target: { x: -50, y: 0, z: 0 },
+            stayDuration: 3000,
+          },
+        ],
+      },
+    ],
+    currentPatrolRouteId: null,
+    patrolPlayStatus: 'idle',
+    patrolCurrentPointIndex: 0,
+    patrolPaused: false,
+    patrolStayRemaining: 0,
 
     toggleLayer: (layer) =>
       set((state) => ({
@@ -329,8 +436,6 @@ export const useMapStore = create<MapState>((set, get) => {
       const targetPos = target ?? [0, 0, 0];
       set({
         pendingFocus: { position, target: targetPos, label },
-        cameraPosition: { x: position[0], y: position[1], z: position[2] },
-        cameraTarget: { x: targetPos[0], y: targetPos[1], z: targetPos[2] },
         focusLabel: label || null,
       });
       setTimeout(() => {
@@ -346,6 +451,132 @@ export const useMapStore = create<MapState>((set, get) => {
       }
       return focus;
     },
+
+    addPatrolRoute: (name) => {
+      const newRoute: PatrolRoute = {
+        id: `route-${Date.now()}`,
+        name,
+        points: [],
+        createdAt: Date.now(),
+      };
+      set((state) => ({
+        patrolRoutes: [...state.patrolRoutes, newRoute],
+      }));
+    },
+
+    deletePatrolRoute: (id) => {
+      set((state) => ({
+        patrolRoutes: state.patrolRoutes.filter((r) => r.id !== id),
+        currentPatrolRouteId: state.currentPatrolRouteId === id ? null : state.currentPatrolRouteId,
+      }));
+    },
+
+    addPatrolPoint: (routeId, point) => {
+      const newPoint: PatrolPoint = {
+        ...point,
+        id: `pt-${Date.now()}`,
+      };
+      set((state) => ({
+        patrolRoutes: state.patrolRoutes.map((r) =>
+          r.id === routeId ? { ...r, points: [...r.points, newPoint] } : r
+        ),
+      }));
+    },
+
+    removePatrolPoint: (routeId, pointId) => {
+      set((state) => ({
+        patrolRoutes: state.patrolRoutes.map((r) =>
+          r.id === routeId ? { ...r, points: r.points.filter((p) => p.id !== pointId) } : r
+        ),
+      }));
+    },
+
+    setCurrentPatrolRoute: (id) => {
+      set({ currentPatrolRouteId: id });
+    },
+
+    startPatrol: () => {
+      const state = get();
+      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
+      if (!route || route.points.length === 0) return;
+      set({
+        patrolPlayStatus: 'flying',
+        patrolCurrentPointIndex: 0,
+        patrolPaused: false,
+        patrolStayRemaining: 0,
+      });
+      const firstPoint = route.points[0];
+      get().queueFlyTo({
+        position: firstPoint.position,
+        target: firstPoint.target,
+        duration: 2000,
+      });
+    },
+
+    pausePatrol: () => {
+      const state = get();
+      if (state.patrolPlayStatus === 'flying' || state.patrolPlayStatus === 'staying') {
+        set({
+          patrolPlayStatus: 'paused',
+          patrolPaused: true,
+        });
+      }
+    },
+
+    resumePatrol: () => {
+      const state = get();
+      if (!state.patrolPaused || state.patrolPlayStatus !== 'paused') return;
+      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
+      if (!route) return;
+      const currentPoint = route.points[state.patrolCurrentPointIndex];
+      if (!currentPoint) return;
+      if (state.patrolStayRemaining > 0) {
+        set({ patrolPlayStatus: 'staying', patrolPaused: false });
+      } else {
+        set({ patrolPlayStatus: 'flying', patrolPaused: false });
+        get().queueFlyTo({
+          position: currentPoint.position,
+          target: currentPoint.target,
+          duration: 2000,
+        });
+      }
+    },
+
+    stopPatrol: () => {
+      set({
+        patrolPlayStatus: 'idle',
+        patrolCurrentPointIndex: 0,
+        patrolPaused: false,
+        patrolStayRemaining: 0,
+        flyTarget: null,
+      });
+    },
+
+    advancePatrolToNext: () => {
+      const state = get();
+      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
+      if (!route) return;
+      const nextIndex = state.patrolCurrentPointIndex + 1;
+      if (nextIndex >= route.points.length) {
+        get().stopPatrol();
+        return;
+      }
+      const nextPoint = route.points[nextIndex];
+      set({
+        patrolCurrentPointIndex: nextIndex,
+        patrolPlayStatus: 'flying',
+        patrolStayRemaining: 0,
+      });
+      get().queueFlyTo({
+        position: nextPoint.position,
+        target: nextPoint.target,
+        duration: 2000,
+      });
+    },
+
+    setPatrolStayRemaining: (ms) => {
+      set({ patrolStayRemaining: ms });
+    },
   };
 
   return initialState;
@@ -358,6 +589,8 @@ useMapStore.subscribe((state) => {
     visibleDistrict: state.visibleDistrict,
     cameraPosition: state.cameraPosition,
     cameraTarget: state.cameraTarget,
+    currentPreset: state.currentPreset,
+    playbackSpeed: state.playbackSpeed,
   };
   const serialized = JSON.stringify(toPersist);
   if (serialized !== lastPersisted) {

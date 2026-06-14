@@ -23,6 +23,7 @@ import { formatCoordinate } from '@/utils/format';
 import type { POI } from '@/types';
 import LayerPanel from '@/components/three/LayerPanel';
 import FavoritePanel from '@/components/three/FavoritePanel';
+import PatrolPanel from '@/components/three/PatrolPanel';
 import PlaybackTimeline from '@/components/three/PlaybackTimeline';
 import CameraController from '@/components/three/CameraController';
 import Buildings from '@/components/three/Buildings';
@@ -32,6 +33,7 @@ import POIPoints from '@/components/three/POIPoints';
 import VideoPoints from '@/components/three/VideoPoints';
 import FloodPoints from '@/components/three/FloodPoints';
 import TrafficHeatLayer from '@/components/three/TrafficHeatLayer';
+import MapToolbar from '@/components/three/MapToolbar';
 
 interface ViewPreset {
   id: string;
@@ -212,7 +214,15 @@ const POIDetailModal: React.FC<{
 };
 
 const Map3DPage: React.FC = () => {
-  const { clickedPOI, setClickedPOI, flyToPosition, activeLayers } = useMapStore();
+  const {
+    clickedPOI,
+    setClickedPOI,
+    flyToPosition,
+    activeLayers,
+    queueFlyTo,
+    setAllLayers,
+    applyPreset,
+  } = useMapStore();
   const controlsRef = useRef<any>(null);
   const [poiModalOpen, setPoiModalOpen] = useState(false);
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
@@ -226,6 +236,52 @@ const Map3DPage: React.FC = () => {
       setPoiModalOpen(true);
     }
   }, [clickedPOI]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    const layerParam = params.get('layer');
+    if (layerParam) {
+      try {
+        const decoded = atob(layerParam);
+        const parsed = JSON.parse(decoded);
+        setAllLayers(parsed);
+      } catch {
+        const layerNames = layerParam.split(',').map((s) => s.trim());
+        const layers: Record<string, boolean> = {};
+        layerNames.forEach((name) => {
+          layers[name] = true;
+        });
+        setAllLayers(layers);
+      }
+    } else {
+      const presetParam = params.get('preset');
+      if (presetParam) {
+        applyPreset(presetParam as any);
+      }
+    }
+
+    const posParam = params.get('pos');
+    const tgtParam = params.get('tgt');
+    if (posParam && tgtParam) {
+      const parseVec = (s: string): [number, number, number] | null => {
+        const parts = s.split(',').map(Number);
+        if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+          return [parts[0], parts[1], parts[2]];
+        }
+        return null;
+      };
+      const pos = parseVec(posParam);
+      const tgt = parseVec(tgtParam);
+      if (pos && tgt) {
+        queueFlyTo({
+          position: { x: pos[0], y: pos[1], z: pos[2] },
+          target: { x: tgt[0], y: tgt[1], z: tgt[2] },
+          duration: 2000,
+        });
+      }
+    }
+  }, [queueFlyTo, setAllLayers, applyPreset]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -308,55 +364,59 @@ const Map3DPage: React.FC = () => {
         <CameraController controlsRef={controlsRef} />
       </Canvas>
 
-      <div className="absolute top-5 left-5 z-40 flex flex-col gap-2">
-        <div className="bg-space-800/85 backdrop-blur-xl rounded-2xl p-2 border border-tech-500/20 shadow-2xl">
-          <div className="space-y-1">
-            {viewPresets.map((preset) => (
-              <Button
-                key={preset.id}
-                type="text"
-                icon={preset.icon}
-                onClick={() => handleViewChange(preset)}
-                className={cn(
-                  '!w-12 !h-12 !flex !flex-col !items-center !justify-center !gap-1 !rounded-xl !text-text-secondary',
-                  'hover:!bg-tech-500/15 hover:!text-tech-300 !transition-all !duration-200',
-                  '!border-none !p-0',
-                )}
-              >
-                <span className="text-[9px] mt-0.5 leading-tight">{preset.name}</span>
-              </Button>
-            ))}
+      <div className="absolute top-5 left-5 z-40 flex gap-3 items-start">
+        <div className="flex flex-col gap-2">
+          <div className="bg-space-800/85 backdrop-blur-xl rounded-2xl p-2 border border-tech-500/20 shadow-2xl">
+            <div className="space-y-1">
+              {viewPresets.map((preset) => (
+                <Button
+                  key={preset.id}
+                  type="text"
+                  icon={preset.icon}
+                  onClick={() => handleViewChange(preset)}
+                  className={cn(
+                    '!w-12 !h-12 !flex !flex-col !items-center !justify-center !gap-1 !rounded-xl !text-text-secondary',
+                    'hover:!bg-tech-500/15 hover:!text-tech-300 !transition-all !duration-200',
+                    '!border-none !p-0',
+                  )}
+                >
+                  <span className="text-[9px] mt-0.5 leading-tight">{preset.name}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-space-800/85 backdrop-blur-xl rounded-xl px-4 py-3 border border-tech-500/20 shadow-xl">
+            <div className="text-[10px] text-text-tertiary mb-1 uppercase tracking-wider">当前图层</div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(activeLayers)
+                .filter(([_, v]) => v)
+                .slice(0, 4)
+                .map(([key]) => (
+                  <Tag
+                    key={key}
+                    color="cyan"
+                    className="!m-0 !border-cyan-500/30 !bg-cyan-500/10 !text-[10px] !px-2 !py-0.5"
+                  >
+                    {key === 'buildings' && '建筑'}
+                    {key === 'roads' && '道路'}
+                    {key === 'water' && '水系'}
+                    {key === 'poi' && 'POI'}
+                    {key === 'video' && '视频'}
+                    {key === 'traffic' && '交通'}
+                    {key === 'pipeline' && '管网'}
+                    {key === 'environment' && '环境'}
+                    {key === 'vegetation' && '植被'}
+                  </Tag>
+                ))}
+              {Object.values(activeLayers).filter(Boolean).length > 4 && (
+                <Tag className="!m-0 !text-[10px] !px-2 !py-0.5">+{Object.values(activeLayers).filter(Boolean).length - 4}</Tag>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="bg-space-800/85 backdrop-blur-xl rounded-xl px-4 py-3 border border-tech-500/20 shadow-xl">
-          <div className="text-[10px] text-text-tertiary mb-1 uppercase tracking-wider">当前图层</div>
-          <div className="flex flex-wrap gap-1">
-            {Object.entries(activeLayers)
-              .filter(([_, v]) => v)
-              .slice(0, 4)
-              .map(([key]) => (
-                <Tag
-                  key={key}
-                  color="cyan"
-                  className="!m-0 !border-cyan-500/30 !bg-cyan-500/10 !text-[10px] !px-2 !py-0.5"
-                >
-                  {key === 'buildings' && '建筑'}
-                  {key === 'roads' && '道路'}
-                  {key === 'water' && '水系'}
-                  {key === 'poi' && 'POI'}
-                  {key === 'video' && '视频'}
-                  {key === 'traffic' && '交通'}
-                  {key === 'pipeline' && '管网'}
-                  {key === 'environment' && '环境'}
-                  {key === 'vegetation' && '植被'}
-                </Tag>
-              ))}
-            {Object.values(activeLayers).filter(Boolean).length > 4 && (
-              <Tag className="!m-0 !text-[10px] !px-2 !py-0.5">+{Object.values(activeLayers).filter(Boolean).length - 4}</Tag>
-            )}
-          </div>
-        </div>
+        <MapToolbar />
       </div>
 
       <div className="absolute top-5 right-24 z-40">
@@ -365,6 +425,7 @@ const Map3DPage: React.FC = () => {
       <div className="absolute top-24 right-24 z-40">
         <FavoritePanel />
       </div>
+      <PatrolPanel />
 
       <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 z-40 w-[calc(100%-80px)] max-w-5xl">
         <PlaybackTimeline />

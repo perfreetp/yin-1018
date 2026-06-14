@@ -76,6 +76,7 @@ const MapToolbar: React.FC = () => {
     flyToPosition,
     cameraPosition,
     cameraTarget,
+    activeLayers,
   } = useMapStore();
 
   const districtOptions = useMemo(() => {
@@ -114,7 +115,11 @@ const MapToolbar: React.FC = () => {
     try {
       const pos = `${cameraPosition.x.toFixed(2)},${cameraPosition.y.toFixed(2)},${cameraPosition.z.toFixed(2)}`;
       const tgt = `${cameraTarget.x.toFixed(2)},${cameraTarget.y.toFixed(2)},${cameraTarget.z.toFixed(2)}`;
-      const url = `${window.location.origin}/map?pos=${pos}&tgt=${tgt}`;
+      const activeLayerNames = Object.entries(activeLayers)
+        .filter(([_, v]) => v)
+        .map(([k]) => k)
+        .join(',');
+      const url = `${window.location.origin}/map?pos=${pos}&tgt=${tgt}&layer=${activeLayerNames}`;
       await navigator.clipboard.writeText(url);
       message.success('视角链接已复制到剪贴板');
     } catch {

@@ -100,11 +100,10 @@ function WaterMesh({ body }: WaterMeshProps) {
 
   return (
     <group position={body.position} rotation={body.rotation}>
-      <mesh ref={meshRef} receiveShadow>
+      <mesh ref={meshRef} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry
           ref={geometryRef}
           args={[body.size[0], body.size[1], 64, 64]}
-          rotation-x={-Math.PI / 2}
         />
         <meshStandardMaterial
           map={texture}
