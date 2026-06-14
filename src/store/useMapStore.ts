@@ -1,234 +1,367 @@
 import { create } from 'zustand';
-import type { LayerType, District, POI, CameraPosition, CameraTarget } from '../types';
-import { districts } from '../mock/events';
+import type { LayerType, District, POI, CameraPosition, CameraTarget } from '@/types';
+import { districts } from '@/mock/events';
 
-// 图层状态映射
+export type PresetName = 'daily' | 'rush' | 'emergency' | 'night';
+
 type ActiveLayers = Record<LayerType, boolean>;
 
-// 飞行定位参数
 interface FlyToParams {
   position: CameraPosition;
   target?: CameraTarget;
   duration?: number;
 }
 
-// 地图状态接口
-interface MapState {
-  // ===== 状态 =====
-
-  /** 各图层的开关状态 */
-  activeLayers: ActiveLayers;
-
-  /** 当前可见的区域（用于地图视图过滤） */
-  visibleDistrict: District | null;
-
-  /** 历史回放当前时间 */
-  currentTime: Date;
-
-  /** 历史回放是否正在播放 */
-  isPlaying: boolean;
-
-  /** 回放倍速（0.5x, 1x, 2x, 4x, 8x） */
-  playbackSpeed: number;
-
-  /** 鼠标悬停的建筑ID */
-  hoveredBuildingId: string | null;
-
-  /** 点击选中的POI点 */
-  clickedPOI: POI | null;
-
-  /** 相机当前位置 */
-  cameraPosition: CameraPosition;
-
-  /** 相机当前目标点 */
-  cameraTarget: CameraTarget;
-
-  // ===== Actions =====
-
-  /**
-   * 切换指定图层的开关状态
-   * @param layer 图层类型
-   */
-  toggleLayer: (layer: LayerType) => void;
-
-  /**
-   * 批量设置所有图层的开关状态
-   * @param layers 图层状态对象
-   */
-  setAllLayers: (layers: Partial<ActiveLayers>) => void;
-
-  /**
-   * 开启所有图层
-   */
-  enableAllLayers: () => void;
-
-  /**
-   * 关闭所有图层
-   */
-  disableAllLayers: () => void;
-
-  /**
-   * 设置当前时间（历史回放）
-   * @param time 时间
-   */
-  setTime: (time: Date) => void;
-
-  /**
-   * 切换播放/暂停状态
-   */
-  togglePlayback: () => void;
-
-  /**
-   * 开始回放
-   */
-  startPlayback: () => void;
-
-  /**
-   * 暂停回放
-   */
-  pausePlayback: () => void;
-
-  /**
-   * 设置回放倍速
-   * @param speed 倍速值
-   */
-  setPlaybackSpeed: (speed: number) => void;
-
-  /**
-   * 设置鼠标悬停的建筑
-   * @param buildingId 建筑ID，null表示取消悬停
-   */
-  setHoveredBuilding: (buildingId: string | null) => void;
-
-  /**
-   * 设置点击选中的POI点
-   * @param poi POI点对象，null表示取消选中
-   */
-  setClickedPOI: (poi: POI | null) => void;
-
-  /**
-   * 设置可见区域
-   * @param district 区域对象
-   */
-  setVisibleDistrict: (district: District | null) => void;
-
-  /**
-   * 飞行定位到指定位置
-   * @param params 飞行参数（位置、目标点、时长）
-   */
-  flyToPosition: (params: FlyToParams) => void;
-
-  /**
-   * 更新相机位置
-   * @param position 相机位置
-   * @param target 相机目标点
-   */
-  updateCamera: (position: CameraPosition, target?: CameraTarget) => void;
+interface FlyTarget {
+  position: CameraPosition;
+  target: CameraTarget;
+  startTime: number;
+  duration: number;
+  startPosition: CameraPosition;
+  startTarget: CameraTarget;
 }
 
-// 默认图层状态
+interface Playhead {
+  startTimestamp: number;
+  baseTime: number;
+  speed: number;
+}
+
+interface PendingFocus {
+  position: [number, number, number];
+  target?: [number, number, number];
+  label: string;
+}
+
+interface PersistedConfig {
+  activeLayers: ActiveLayers;
+  visibleDistrict: District | null;
+  cameraPosition: CameraPosition;
+  cameraTarget: CameraTarget;
+}
+
+const STORAGE_KEY = 'dtcity_map_config';
+
 const defaultLayers: ActiveLayers = {
-  buildings: true,    // 建筑图层 - 默认开启
-  roads: true,        // 道路图层 - 默认开启
-  water: true,        // 水系图层 - 默认开启
-  vegetation: true,   // 植被图层 - 默认开启
-  poi: false,         // POI图层 - 默认关闭
-  traffic: false,     // 交通热力图层 - 默认关闭
-  pipeline: false,    // 管网监测图层 - 默认关闭
-  environment: false, // 环境站点图层 - 默认关闭
-  video: false,       // 视频点位图层 - 默认关闭
+  buildings: true,
+  roads: true,
+  water: true,
+  vegetation: true,
+  poi: false,
+  traffic: false,
+  pipeline: false,
+  environment: false,
+  video: false,
 };
 
-export const useMapStore = create<MapState>((set, get) => ({
-  // ===== 初始状态 =====
-  activeLayers: defaultLayers,
-  visibleDistrict: districts[0],
-  currentTime: new Date(),
-  isPlaying: false,
-  playbackSpeed: 1,
-  hoveredBuildingId: null,
-  clickedPOI: null,
-  cameraPosition: { x: 0, y: 150, z: 200 },
-  cameraTarget: { x: 0, y: 0, z: 0 },
-
-  // ===== Actions =====
-
-  toggleLayer: (layer) =>
-    set((state) => ({
-      activeLayers: {
-        ...state.activeLayers,
-        [layer]: !state.activeLayers[layer],
-      },
-    })),
-
-  setAllLayers: (layers) =>
-    set((state) => ({
-      activeLayers: {
-        ...state.activeLayers,
-        ...layers,
-      },
-    })),
-
-  enableAllLayers: () =>
-    set({
-      activeLayers: {
-        buildings: true,
-        roads: true,
-        water: true,
-        vegetation: true,
-        poi: true,
-        traffic: true,
-        pipeline: true,
-        environment: true,
-        video: true,
-      },
-    }),
-
-  disableAllLayers: () =>
-    set({
-      activeLayers: {
-        buildings: false,
-        roads: false,
-        water: false,
-        vegetation: false,
-        poi: false,
-        traffic: false,
-        pipeline: false,
-        environment: false,
-        video: false,
-      },
-    }),
-
-  setTime: (time) => set({ currentTime: time }),
-
-  togglePlayback: () =>
-    set((state) => ({ isPlaying: !state.isPlaying })),
-
-  startPlayback: () => set({ isPlaying: true }),
-
-  pausePlayback: () => set({ isPlaying: false }),
-
-  setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
-
-  setHoveredBuilding: (buildingId) => set({ hoveredBuildingId: buildingId }),
-
-  setClickedPOI: (poi) => set({ clickedPOI: poi }),
-
-  setVisibleDistrict: (district) => set({ visibleDistrict: district }),
-
-  flyToPosition: (params) => {
-    // 实际飞行动画由 Three.js 组件处理，这里只更新目标状态
-    // 组件可以通过订阅 cameraPosition/cameraTarget 变化来触发动画
-    const target = params.target || get().cameraTarget;
-    set({
-      cameraPosition: params.position,
-      cameraTarget: target,
-    });
+export const presets: Record<PresetName, Partial<ActiveLayers>> = {
+  daily: {
+    buildings: true,
+    roads: true,
+    water: true,
+    poi: true,
+    vegetation: false,
+    traffic: false,
+    pipeline: false,
+    environment: false,
+    video: false,
   },
+  rush: {
+    buildings: true,
+    roads: true,
+    water: false,
+    poi: false,
+    vegetation: false,
+    traffic: true,
+    pipeline: false,
+    environment: false,
+    video: true,
+  },
+  emergency: {
+    buildings: true,
+    roads: true,
+    water: true,
+    vegetation: true,
+    poi: true,
+    traffic: true,
+    pipeline: true,
+    environment: true,
+    video: true,
+  },
+  night: {
+    buildings: true,
+    roads: false,
+    water: false,
+    vegetation: false,
+    poi: true,
+    traffic: false,
+    pipeline: false,
+    environment: false,
+    video: true,
+  },
+};
 
-  updateCamera: (position, target) =>
-    set((state) => ({
-      cameraPosition: position,
-      cameraTarget: target || state.cameraTarget,
-    })),
-}));
+function loadPersistedConfig(): Partial<PersistedConfig> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as PersistedConfig;
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedConfig(config: PersistedConfig) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    // ignore
+  }
+}
+
+interface MapState {
+  activeLayers: ActiveLayers;
+  visibleDistrict: District | null;
+  currentPreset: PresetName | null;
+  currentTime: Date;
+  playbackSpeed: number;
+  playhead: Playhead | null;
+  hoveredBuildingId: string | null;
+  clickedPOI: POI | null;
+  cameraPosition: CameraPosition;
+  cameraTarget: CameraTarget;
+  focusLabel: string | null;
+  flyTarget: FlyTarget | null;
+  pendingFocus: PendingFocus | null;
+
+  toggleLayer: (layer: LayerType) => void;
+  setAllLayers: (layers: Partial<ActiveLayers>) => void;
+  enableAllLayers: () => void;
+  disableAllLayers: () => void;
+  applyPreset: (name: PresetName) => void;
+
+  setTime: (time: Date) => void;
+  startPlayback: () => void;
+  stopPlayback: () => void;
+  setPlaybackSpeed: (speed: number) => void;
+  getCurrentPlaybackTime: () => Date;
+
+  setHoveredBuilding: (buildingId: string | null) => void;
+  setClickedPOI: (poi: POI | null) => void;
+  setVisibleDistrict: (district: District | null) => void;
+
+  queueFlyTo: (params: FlyToParams) => void;
+  flyToPosition: (params: FlyToParams) => void;
+  clearFlyTarget: () => void;
+  updateCamera: (position: CameraPosition, target?: CameraTarget) => void;
+
+  navigateAndFocus: (
+    position: [number, number, number],
+    target?: [number, number, number],
+    label?: string,
+  ) => void;
+  consumePendingFocus: () => PendingFocus | null;
+}
+
+const persisted = loadPersistedConfig();
+
+export const useMapStore = create<MapState>((set, get) => {
+  const initialState: MapState = {
+    activeLayers: persisted.activeLayers ?? defaultLayers,
+    visibleDistrict: persisted.visibleDistrict ?? districts[0] ?? null,
+    currentPreset: null,
+    currentTime: new Date(),
+    playbackSpeed: 1,
+    playhead: null,
+    hoveredBuildingId: null,
+    clickedPOI: null,
+    cameraPosition: persisted.cameraPosition ?? { x: 0, y: 150, z: 200 },
+    cameraTarget: persisted.cameraTarget ?? { x: 0, y: 0, z: 0 },
+    focusLabel: null,
+    flyTarget: null,
+    pendingFocus: null,
+
+    toggleLayer: (layer) =>
+      set((state) => ({
+        activeLayers: {
+          ...state.activeLayers,
+          [layer]: !state.activeLayers[layer],
+        },
+        currentPreset: null,
+      })),
+
+    setAllLayers: (layers) =>
+      set((state) => ({
+        activeLayers: {
+          ...state.activeLayers,
+          ...layers,
+        },
+        currentPreset: null,
+      })),
+
+    enableAllLayers: () =>
+      set({
+        activeLayers: {
+          buildings: true,
+          roads: true,
+          water: true,
+          vegetation: true,
+          poi: true,
+          traffic: true,
+          pipeline: true,
+          environment: true,
+          video: true,
+        },
+        currentPreset: null,
+      }),
+
+    disableAllLayers: () =>
+      set({
+        activeLayers: {
+          buildings: false,
+          roads: false,
+          water: false,
+          vegetation: false,
+          poi: false,
+          traffic: false,
+          pipeline: false,
+          environment: false,
+          video: false,
+        },
+        currentPreset: null,
+      }),
+
+    applyPreset: (name) => {
+      const preset = presets[name];
+      if (!preset) return;
+      set({
+        activeLayers: { ...defaultLayers, ...preset },
+        currentPreset: name,
+      });
+    },
+
+    setTime: (time) => set({ currentTime: time, playhead: null }),
+
+    startPlayback: () => {
+      const state = get();
+      set({
+        playhead: {
+          startTimestamp: Date.now(),
+          baseTime: state.currentTime.getTime(),
+          speed: state.playbackSpeed,
+        },
+      });
+    },
+
+    stopPlayback: () => {
+      const state = get();
+      if (state.playhead) {
+        const currentPlaybackTime = state.getCurrentPlaybackTime();
+        set({ playhead: null, currentTime: currentPlaybackTime });
+      }
+    },
+
+    setPlaybackSpeed: (speed) => {
+      const state = get();
+      if (state.playhead) {
+        const currentPlaybackTime = state.getCurrentPlaybackTime();
+        set({
+          playbackSpeed: speed,
+          playhead: {
+            startTimestamp: Date.now(),
+            baseTime: currentPlaybackTime.getTime(),
+            speed,
+          },
+        });
+      } else {
+        set({ playbackSpeed: speed });
+      }
+    },
+
+    getCurrentPlaybackTime: () => {
+      const state = get();
+      if (!state.playhead) {
+        return state.currentTime;
+      }
+      const { startTimestamp, baseTime, speed } = state.playhead;
+      const elapsed = Date.now() - startTimestamp;
+      return new Date(baseTime + elapsed * speed);
+    },
+
+    setHoveredBuilding: (buildingId) => set({ hoveredBuildingId: buildingId }),
+
+    setClickedPOI: (poi) => set({ clickedPOI: poi }),
+
+    setVisibleDistrict: (district) => set({ visibleDistrict: district }),
+
+    queueFlyTo: (params) => {
+      const state = get();
+      const target = params.target ?? state.cameraTarget;
+      const duration = params.duration ?? 1500;
+      set({
+        flyTarget: {
+          position: params.position,
+          target,
+          startTime: Date.now(),
+          duration,
+          startPosition: { ...state.cameraPosition },
+          startTarget: { ...state.cameraTarget },
+        },
+      });
+    },
+
+    flyToPosition: (params) => {
+      get().queueFlyTo(params);
+    },
+
+    clearFlyTarget: () => set({ flyTarget: null }),
+
+    updateCamera: (position, target) =>
+      set((state) => ({
+        cameraPosition: position,
+        cameraTarget: target ?? state.cameraTarget,
+      })),
+
+    navigateAndFocus: (position, target, label = '') => {
+      const targetPos = target ?? [0, 0, 0];
+      set({
+        pendingFocus: { position, target: targetPos, label },
+        cameraPosition: { x: position[0], y: position[1], z: position[2] },
+        cameraTarget: { x: targetPos[0], y: targetPos[1], z: targetPos[2] },
+        focusLabel: label || null,
+      });
+      setTimeout(() => {
+        set({ focusLabel: null });
+      }, 5000);
+    },
+
+    consumePendingFocus: () => {
+      const state = get();
+      const focus = state.pendingFocus;
+      if (focus) {
+        set({ pendingFocus: null });
+      }
+      return focus;
+    },
+  };
+
+  return initialState;
+});
+
+let lastPersisted = '';
+useMapStore.subscribe((state) => {
+  const toPersist = {
+    activeLayers: state.activeLayers,
+    visibleDistrict: state.visibleDistrict,
+    cameraPosition: state.cameraPosition,
+    cameraTarget: state.cameraTarget,
+  };
+  const serialized = JSON.stringify(toPersist);
+  if (serialized !== lastPersisted) {
+    lastPersisted = serialized;
+    savePersistedConfig(toPersist);
+  }
+});

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Users,
   AlertTriangle,
@@ -14,6 +15,8 @@ import {
   Gauge,
   Info,
   ChevronRight,
+  MapPin,
+  Navigation,
 } from 'lucide-react';
 import TechCard from '@/components/common/TechCard';
 import MetricCard from '@/components/common/MetricCard';
@@ -32,6 +35,8 @@ import {
 } from '@/mock';
 import { formatNumber, formatPercent, formatTime, getAlertLevelConfig, getEventCategoryLabel, getEventCategoryColor } from '@/utils/format';
 import { useEventStore } from '@/store/useEventStore';
+import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 import type { AlertLevel, EventCategory, EventStatus } from '@/types';
 import { useSimulatedMetrics, useRealtimeList } from '@/hooks/useRealtimeData';
 
@@ -56,9 +61,43 @@ const levelGlowMap: Record<AlertBadgeLevel, string> = {
   info: 'hover:shadow-glow-purple',
 };
 
+const districtViewMap: Record<string, { position: [number, number, number]; target: [number, number, number] }> = {
+  d001: { position: [0, 60, 80], target: [0, 0, 0] },
+  d002: { position: [60, 50, 60], target: [50, 0, 0] },
+  d003: { position: [-60, 50, 60], target: [-50, 0, 0] },
+  d004: { position: [40, 50, -70], target: [30, 0, -60] },
+  d005: { position: [0, 50, 80], target: [0, 0, 70] },
+  d006: { position: [80, 50, -40], target: [70, 0, -30] },
+};
+
+const levelDistrictMap: Record<AlertBadgeLevel, string> = {
+  critical: 'd001',
+  warning: 'd002',
+  notice: 'd003',
+  info: 'd004',
+};
+
 const OverviewPage: React.FC = () => {
   const { events, setFilters } = useEventStore();
+  const { setCurrentRoute } = useAppStore();
+  const { navigateAndFocus } = useMapStore();
+  const navigate = useNavigate();
   const [scrollIndex, setScrollIndex] = useState(0);
+
+  const goToMap = (districtId?: string, label?: string, position?: [number, number, number], target?: [number, number, number]) => {
+    setCurrentRoute('/map');
+    let pos: [number, number, number] = [120, 100, 120];
+    let tgt: [number, number, number] = [0, 0, 0];
+    if (position && target) {
+      pos = position;
+      tgt = target;
+    } else if (districtId && districtViewMap[districtId]) {
+      pos = districtViewMap[districtId].position;
+      tgt = districtViewMap[districtId].target;
+    }
+    navigateAndFocus(pos, tgt, label);
+    navigate('/map');
+  };
 
   const population = useSimulatedMetrics({ baseValue: 1258600, variance: 0.001, trend: 'stable', interval: 10000 });
   const todayEvents = useSimulatedMetrics({ baseValue: 47, variance: 0.1, trend: 'random', minValue: 10, maxValue: 100 });
@@ -314,6 +353,17 @@ const OverviewPage: React.FC = () => {
                       `}
                     >
                       <div className={`absolute top-0 left-0 w-full h-1 rounded-t-xl bg-gradient-to-r ${levelGradientMap[level]}`} />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const districtId = levelDistrictMap[level];
+                          goToMap(districtId, `${AlertBadgeLevelMap[level as AlertLevel] || level}级预警区域`);
+                        }}
+                        className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-tech-300 hover:bg-tech-500/10 transition-all"
+                        title="地图定位"
+                      >
+                        <Navigation className="w-4 h-4" />
+                      </button>
                       <div className="flex items-center justify-between mb-3">
                         <AlertBadge level={level} size="lg" />
                       </div>
@@ -409,10 +459,40 @@ const OverviewPage: React.FC = () => {
                   },
                 ]}
                 horizontal={true}
-                height={280}
+                height={200}
                 showLegend={false}
                 barWidth="60%"
               />
+              <div className="mt-3 pt-3 border-t border-tech-500/10 max-h-32 overflow-y-auto pr-1">
+                {top10Districts.map((d, idx) => {
+                  const district = districts.find((dist) => dist.name === d.name);
+                  return (
+                    <div
+                      key={d.name}
+                      onClick={() => district && goToMap(district.id, d.name)}
+                      className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-tech-500/10 cursor-pointer group transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
+                          idx === 0 ? 'bg-red-500/20 text-red-400' :
+                          idx === 1 ? 'bg-orange-500/20 text-orange-400' :
+                          idx === 2 ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-space-700 text-text-tertiary'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-text-primary group-hover:text-tech-300 transition-colors">
+                          {d.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono text-text-secondary">{d.value}</span>
+                        <MapPin className="w-3.5 h-3.5 text-text-tertiary group-hover:text-tech-400 transition-colors opacity-0 group-hover:opacity-100" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </TechCard>
 
             <TechCard
@@ -454,6 +534,8 @@ const OverviewPage: React.FC = () => {
                 const actualFeed = feeds?.[actualIndex] || feed;
                 const level = actualFeed.level === 'info' ? 'info' : AlertBadgeLevelMap[actualFeed.level as AlertLevel] || 'info';
                 const config = getAlertLevelConfig((actualFeed.level === 'info' ? 'blue' : actualFeed.level) as AlertLevel);
+                const offsetX = (index % 6 - 3) * 20;
+                const offsetZ = (index % 4 - 2) * 15;
                 return (
                   <div
                     key={`${actualFeed.id}-${index}`}
@@ -480,7 +562,19 @@ const OverviewPage: React.FC = () => {
                       </div>
                       <p className="text-xs text-text-secondary line-clamp-2">{actualFeed.content}</p>
                     </div>
-                    <ChevronRight className="flex-shrink-0 w-5 h-5 text-text-tertiary opacity-0 group-hover:opacity-100 group-hover:text-tech-400 transition-all duration-200" />
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          goToMap(undefined, actualFeed.title, [30 + offsetX, 50, 50 + offsetZ], [offsetX, 0, offsetZ]);
+                        }}
+                        className="flex-shrink-0 p-1.5 rounded-lg text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-tech-300 hover:bg-tech-500/10 transition-all duration-200"
+                        title="地图定位"
+                      >
+                        <MapPin className="w-4 h-4" />
+                      </button>
+                      <ChevronRight className="flex-shrink-0 w-5 h-5 text-text-tertiary opacity-0 group-hover:opacity-100 group-hover:text-tech-400 transition-all duration-200" />
+                    </div>
                   </div>
                 );
               })}

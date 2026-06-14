@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Droplets,
   CircleAlert,
@@ -15,7 +16,8 @@ import {
   Droplet,
   Waves,
   ArrowUpDown,
-  Gauge
+  Gauge,
+  Navigation,
 } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import TechCard from '@/components/common/TechCard';
@@ -25,6 +27,8 @@ import StatusTag from '@/components/common/StatusTag';
 import { useSimulatedMetrics, useRealtimeList } from '@/hooks/useRealtimeData';
 import { floodPoints, manholeIssues, pumpStations, type FloodPoint, type ManholeIssue, type PumpStation, type FloodLevel } from '@/mock/pipeline';
 import { formatNumber, formatPercent, formatDateTime, getAlertLevelConfig } from '@/utils/format';
+import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 
 const floodLevelColorMap: Record<FloodLevel, string> = {
   light: '#3B82F6',
@@ -113,7 +117,44 @@ const RingProgress: React.FC<{
   );
 };
 
+const districtViewMap: Record<string, { position: [number, number, number]; target: [number, number, number] }> = {
+  '中心街道': { position: [0, 60, 80], target: [0, 0, 0] },
+  '东湖街道': { position: [60, 50, 60], target: [50, 0, 0] },
+  '西湖街道': { position: [-60, 50, 60], target: [-50, 0, 0] },
+  '南山街道': { position: [40, 50, -70], target: [30, 0, -60] },
+  '北岭街道': { position: [0, 50, 80], target: [0, 0, 70] },
+  '新城街道': { position: [80, 50, -40], target: [70, 0, -30] },
+};
+
 const PipelinePage: React.FC = () => {
+  const navigate = useNavigate();
+  const { setCurrentRoute } = useAppStore();
+  const { navigateAndFocus, applyPreset } = useMapStore();
+
+  const goToMap = (
+    districtName?: string,
+    label?: string,
+    position?: [number, number, number],
+    target?: [number, number, number],
+    usePipelinePreset = true,
+  ) => {
+    setCurrentRoute('/map');
+    let pos: [number, number, number] = [120, 100, 120];
+    let tgt: [number, number, number] = [0, 0, 0];
+    if (position && target) {
+      pos = position;
+      tgt = target;
+    } else if (districtName && districtViewMap[districtName]) {
+      pos = districtViewMap[districtName].position;
+      tgt = districtViewMap[districtName].target;
+    }
+    if (usePipelinePreset) {
+      applyPreset('emergency');
+    }
+    navigateAndFocus(pos, tgt, label);
+    navigate('/map');
+  };
+
   const floodCount = useSimulatedMetrics({
     baseValue: floodPoints.length,
     variance: 0.05,
@@ -339,46 +380,64 @@ const PipelinePage: React.FC = () => {
               bodyClassName="p-0"
             >
               <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
-                {sortedFloodPoints.map((fp, idx) => (
-                  <div key={fp.id} className={`px-3 py-3 border-b border-cyan-500/10 last:border-0 hover:bg-cyan-500/5 transition-colors ${idx === 0 ? 'bg-red-500/5' : ''}`}>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ background: floodLevelColorMap[fp.level], boxShadow: `0 0 8px ${floodLevelColorMap[fp.level]}` }}
-                        />
-                        <span className="text-sm text-white/90 font-medium truncate">{fp.name}</span>
+                {sortedFloodPoints.map((fp, idx) => {
+                  const view = districtViewMap[fp.district];
+                  const offsetX = (idx % 5 - 2) * 8;
+                  const offsetZ = (idx % 4 - 2) * 6;
+                  return (
+                    <div
+                      key={fp.id}
+                      onClick={() => goToMap(
+                        fp.district,
+                        fp.name,
+                        [view?.position[0] + offsetX || offsetX, 50, view?.position[2] + offsetZ || offsetZ],
+                        [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                        true,
+                      )}
+                      className={`px-3 py-3 border-b border-cyan-500/10 last:border-0 hover:bg-cyan-500/5 transition-colors cursor-pointer group ${idx === 0 ? 'bg-red-500/5' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ background: floodLevelColorMap[fp.level], boxShadow: `0 0 8px ${floodLevelColorMap[fp.level]}` }}
+                          />
+                          <span className="text-sm text-white/90 font-medium truncate group-hover:text-cyan-300 transition-colors">{fp.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Navigation className="w-3 h-3 text-cyan-400/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border backdrop-blur-sm ${
+                            fp.level === 'severe' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                            fp.level === 'heavy' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30' :
+                            fp.level === 'moderate' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                            'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                          }`}>
+                            {floodLevelLabelMap[fp.level]}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border backdrop-blur-sm ${
-                        fp.level === 'severe' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
-                        fp.level === 'heavy' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30' :
-                        fp.level === 'moderate' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
-                        'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                      }`}>
-                        {floodLevelLabelMap[fp.level]}
-                      </span>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex items-center gap-1 text-cyan-400/70">
+                          <Droplets size={12} />
+                          <span>水深: <span className="text-white/90 font-semibold">{(fp.depth * 100).toFixed(0)}cm</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-cyan-400/70">
+                          <MapPin size={12} />
+                          <span className="truncate text-white/80">{fp.district}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-cyan-400/70 col-span-2">
+                          <Clock size={12} />
+                          <span>开始: <span className="text-white/80">{fp.startTime.slice(11)}</span></span>
+                          <span className="ml-auto">
+                            {fp.isDraining
+                              ? <span className="text-emerald-400">● 抽排中</span>
+                              : <span className="text-amber-400">● 待处置</span>}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="flex items-center gap-1 text-cyan-400/70">
-                        <Droplets size={12} />
-                        <span>水深: <span className="text-white/90 font-semibold">{(fp.depth * 100).toFixed(0)}cm</span></span>
-                      </div>
-                      <div className="flex items-center gap-1 text-cyan-400/70">
-                        <MapPin size={12} />
-                        <span className="truncate text-white/80">{fp.district}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-cyan-400/70 col-span-2">
-                        <Clock size={12} />
-                        <span>开始: <span className="text-white/80">{fp.startTime.slice(11)}</span></span>
-                        <span className="ml-auto">
-                          {fp.isDraining
-                            ? <span className="text-emerald-400">● 抽排中</span>
-                            : <span className="text-amber-400">● 待处置</span>}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </TechCard>
 
@@ -389,32 +448,49 @@ const PipelinePage: React.FC = () => {
               bodyClassName="p-0"
             >
               <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
-                {(liveManholeIssues || []).map((mi, idx) => (
-                  <div key={mi.id} className={`px-3 py-2.5 border-b border-cyan-500/10 last:border-0 hover:bg-cyan-500/5 transition-colors`}>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs text-cyan-400/60 font-mono">{mi.id}</span>
-                        <span className="text-xs text-white/90 font-medium truncate">{mi.location}</span>
+                {(liveManholeIssues || []).map((mi, idx) => {
+                  const view = districtViewMap[mi.district];
+                  const offsetX = (idx % 6 - 3) * 6;
+                  const offsetZ = (idx % 5 - 2) * 5;
+                  return (
+                    <div
+                      key={mi.id}
+                      onClick={() => goToMap(
+                        mi.district,
+                        `${manholeTypeLabelMap[mi.issueType]} - ${mi.location}`,
+                        [view?.position[0] + offsetX || offsetX, 45, view?.position[2] + offsetZ || offsetZ],
+                        [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                        true,
+                      )}
+                      className={`px-3 py-2.5 border-b border-cyan-500/10 last:border-0 hover:bg-cyan-500/5 transition-colors cursor-pointer group`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-cyan-400/60 font-mono">{mi.id}</span>
+                          <span className="text-xs text-white/90 font-medium truncate group-hover:text-cyan-300 transition-colors">{mi.location}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Navigation className="w-3 h-3 text-cyan-400/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border backdrop-blur-sm ${
+                            mi.dangerLevel === 'critical' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                            mi.dangerLevel === 'high' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30' :
+                            mi.dangerLevel === 'medium' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                            'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                          }`}>
+                            {manholeTypeLabelMap[mi.issueType]}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border backdrop-blur-sm ${
-                        mi.dangerLevel === 'critical' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
-                        mi.dangerLevel === 'high' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30' :
-                        mi.dangerLevel === 'medium' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
-                        'bg-purple-500/15 text-purple-400 border-purple-500/30'
-                      }`}>
-                        {manholeTypeLabelMap[mi.issueType]}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-1 text-cyan-400/70">
-                        <Clock size={11} />
-                        <span className="text-white/75">{mi.reportTime.slice(5).replace(' ', ' ')}</span>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border backdrop-blur-sm ${
-                        mi.repairStatus === 'completed' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
-                        mi.repairStatus === 'repairing' || mi.repairStatus === 'arrived' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
-                        'bg-slate-500/15 text-slate-300 border-slate-500/30'
-                      }`}>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1 text-cyan-400/70">
+                          <Clock size={11} />
+                          <span className="text-white/75">{mi.reportTime.slice(5).replace(' ', ' ')}</span>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border backdrop-blur-sm ${
+                          mi.repairStatus === 'completed' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                          mi.repairStatus === 'repairing' || mi.repairStatus === 'arrived' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                          'bg-slate-500/15 text-slate-300 border-slate-500/30'
+                        }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${
                           mi.repairStatus === 'completed' ? 'bg-emerald-400' :
                           mi.repairStatus === 'repairing' || mi.repairStatus === 'arrived' ? 'bg-amber-400 animate-pulse' :
@@ -429,8 +505,9 @@ const PipelinePage: React.FC = () => {
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
             </TechCard>
           </div>
 
@@ -527,12 +604,41 @@ const PipelinePage: React.FC = () => {
               bodyClassName="p-3"
             >
               <div className="grid grid-cols-2 gap-3">
-                {(livePumpStations || pumpStations).slice(0, 6).map(ps => {
+                {(livePumpStations || pumpStations).slice(0, 6).map((ps, idx) => {
                   const healthColor = ps.efficiency >= 85 ? '#10B981' : ps.efficiency >= 70 ? '#00D4FF' : ps.efficiency >= 50 ? '#FACC15' : '#EF4444';
                   const levelPercent = (ps.waterLevel / ps.maxWaterLevel) * 100;
                   const levelWarning = levelPercent >= 80;
+                  const view = districtViewMap[ps.district];
+                  const offsetX = (idx % 4 - 2) * 10;
+                  const offsetZ = (idx % 3 - 1) * 8;
                   return (
-                    <div key={ps.id} className="relative rounded-lg border border-cyan-500/15 p-3 bg-gradient-to-br from-cyan-500/5 to-transparent hover:border-cyan-400/30 transition-colors">
+                    <div
+                      key={ps.id}
+                      onClick={() => goToMap(
+                        ps.district,
+                        ps.name,
+                        [view?.position[0] + offsetX || offsetX, 55, view?.position[2] + offsetZ || offsetZ],
+                        [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                        true,
+                      )}
+                      className="relative rounded-lg border border-cyan-500/15 p-3 bg-gradient-to-br from-cyan-500/5 to-transparent hover:border-cyan-400/30 transition-colors cursor-pointer group"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          goToMap(
+                            ps.district,
+                            ps.name,
+                            [view?.position[0] + offsetX || offsetX, 55, view?.position[2] + offsetZ || offsetZ],
+                            [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                            true,
+                          );
+                        }}
+                        className="absolute top-2 right-2 p-1 rounded text-cyan-400/50 opacity-0 group-hover:opacity-100 hover:text-cyan-300 hover:bg-cyan-500/10 transition-all"
+                        title="地图定位"
+                      >
+                        <Navigation className="w-3 h-3" />
+                      </button>
                       <div className="flex items-start gap-3">
                         <RingProgress
                           percent={Math.round(ps.efficiency)}
@@ -541,7 +647,7 @@ const PipelinePage: React.FC = () => {
                           color={healthColor}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-white/90 truncate mb-1">{ps.name}</div>
+                          <div className="text-sm font-semibold text-white/90 truncate mb-1 group-hover:text-cyan-300 transition-colors">{ps.name}</div>
                           <div className={`text-[11px] px-1.5 py-0.5 rounded inline-block mb-2 ${
                             ps.status === 'running' ? 'bg-emerald-500/15 text-emerald-400' :
                             ps.status === 'stopped' ? 'bg-slate-500/20 text-slate-400' :

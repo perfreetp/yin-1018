@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Gauge,
   Car,
@@ -14,6 +15,7 @@ import {
   Activity,
   Navigation,
   CircleDot,
+  Locate,
 } from 'lucide-react';
 import TechCard from '@/components/common/TechCard';
 import MetricCard from '@/components/common/MetricCard';
@@ -31,7 +33,7 @@ import {
   type TrafficStatus,
   type RoadLevel,
 } from '@/mock';
-import { events } from '@/mock/events';
+import { events, districts } from '@/mock/events';
 import {
   formatNumber,
   formatPercent,
@@ -40,6 +42,8 @@ import {
   getAlertLevelConfig,
 } from '@/utils/format';
 import { useSimulatedMetrics, useRealtimeList } from '@/hooks/useRealtimeData';
+import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 import type { AlertLevel } from '@/types';
 
 const roadLevelLabels: Record<RoadLevel, string> = {
@@ -55,7 +59,38 @@ const trafficStatusLabels: Record<TrafficStatus, { label: string; color: string;
   blocked: { label: '堵塞', color: '#ef4444', bgColor: 'bg-red-500' },
 };
 
+const districtViewMap: Record<string, { position: [number, number, number]; target: [number, number, number] }> = {
+  '中心街道': { position: [0, 60, 80], target: [0, 0, 0] },
+  '东湖街道': { position: [60, 50, 60], target: [50, 0, 0] },
+  '西湖街道': { position: [-60, 50, 60], target: [-50, 0, 0] },
+  '南山街道': { position: [40, 50, -70], target: [30, 0, -60] },
+  '北岭街道': { position: [0, 50, 80], target: [0, 0, 70] },
+  '新城街道': { position: [80, 50, -40], target: [70, 0, -30] },
+};
+
 const TrafficPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { setCurrentRoute } = useAppStore();
+  const { navigateAndFocus, applyPreset } = useMapStore();
+
+  const goToMap = (districtName?: string, label?: string, position?: [number, number, number], target?: [number, number, number], useTrafficPreset = true) => {
+    setCurrentRoute('/map');
+    let pos: [number, number, number] = [120, 100, 120];
+    let tgt: [number, number, number] = [0, 0, 0];
+    if (position && target) {
+      pos = position;
+      tgt = target;
+    } else if (districtName && districtViewMap[districtName]) {
+      pos = districtViewMap[districtName].position;
+      tgt = districtViewMap[districtName].target;
+    }
+    if (useTrafficPreset) {
+      applyPreset('rush');
+    }
+    navigateAndFocus(pos, tgt, label);
+    navigate('/map');
+  };
+
   const avgSpeed = useSimulatedMetrics({
     baseValue: trafficMetrics.averageSpeed,
     variance: 0.1,
@@ -314,11 +349,19 @@ const TrafficPage: React.FC = () => {
               extra={<span className="text-xs text-text-tertiary">共 {trafficRoads.length} 条</span>}
             >
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {(realtimeRoads || sortedRoads).slice(0, 10).map((road) => {
+                {(realtimeRoads || sortedRoads).slice(0, 10).map((road, idx) => {
                   const status = trafficStatusLabels[road.status];
+                  const offsetX = (idx % 5 - 2) * 15;
+                  const offsetZ = (idx % 4 - 2) * 10;
                   return (
                     <div
                       key={road.id}
+                      onClick={() => goToMap(
+                        road.district,
+                        road.name,
+                        [districtViewMap[road.district]?.position[0] + offsetX || offsetX, 50, districtViewMap[road.district]?.position[2] + offsetZ || offsetZ],
+                        [districtViewMap[road.district]?.target[0] + offsetX || offsetX, 0, districtViewMap[road.district]?.target[2] + offsetZ || offsetZ],
+                      )}
                       className="p-3 rounded-xl bg-space-700/30 border border-tech-500/10 hover:border-tech-400/20 transition-all cursor-pointer group"
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -326,16 +369,19 @@ const TrafficPage: React.FC = () => {
                           <div
                             className={`w-2 h-2 rounded-full flex-shrink-0 ${status.bgColor}`}
                           />
-                          <span className="font-medium text-text-primary text-sm truncate">
+                          <span className="font-medium text-text-primary text-sm truncate group-hover:text-tech-300 transition-colors">
                             {road.name}
                           </span>
                         </div>
-                        <span
-                          className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0"
-                          style={{ color: status.color, background: `${status.color}15` }}
-                        >
-                          {status.label}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <Locate className="w-3.5 h-3.5 text-text-tertiary opacity-0 group-hover:opacity-100 group-hover:text-tech-400 transition-all" />
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                            style={{ color: status.color, background: `${status.color}15` }}
+                          >
+                            {status.label}
+                          </span>
+                        </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-[11px]">
                         <div>
@@ -536,58 +582,81 @@ const TrafficPage: React.FC = () => {
               extra={<span className="text-xs text-emerald-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />实时</span>}
             >
               <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-                {busArrivals.map((bus) => (
-                  <div
-                    key={bus.id}
-                    className="p-3.5 rounded-xl bg-space-700/30 border border-tech-500/10 hover:border-tech-400/25 hover:bg-space-700/50 transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-                          <Bus className="w-5 h-5 text-blue-400" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-text-primary">{bus.lineNumber}</span>
-                            {bus.status === 'delayed' && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400">晚点</span>
-                            )}
+                {busArrivals.map((bus, idx) => {
+                  const districtName = districts[idx % districts.length]?.name || '中心街道';
+                  const view = districtViewMap[districtName];
+                  const offsetX = (idx % 3 - 1) * 10;
+                  const offsetZ = (idx % 3 - 1) * 8;
+                  return (
+                    <div
+                      key={bus.id}
+                      className="p-3.5 rounded-xl bg-space-700/30 border border-tech-500/10 hover:border-tech-400/25 hover:bg-space-700/50 transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
+                            <Bus className="w-5 h-5 text-blue-400" />
                           </div>
-                          <div className="text-[11px] text-text-tertiary truncate mt-0.5">{bus.lineName}</div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-text-primary">{bus.lineNumber}</span>
+                              {bus.status === 'delayed' && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400">晚点</span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-text-tertiary truncate mt-0.5">{bus.lineName}</div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-2xl font-bold font-mono text-tech-400">
-                          {bus.arrivalMinutes}
-                          <span className="text-xs font-normal text-text-tertiary ml-0.5">分</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <div className="flex items-center gap-1.5 text-text-secondary min-w-0 flex-1">
-                        <MapPin className="w-3 h-3 text-tech-400 flex-shrink-0" />
-                        <span className="truncate">下一站: {bus.nextStation}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <Users className="w-3 h-3 text-purple-400" />
-                        <div className="w-14 h-1.5 rounded-full bg-space-600/60 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${bus.passengerLoad}%`,
-                              background: bus.passengerLoad > 85
-                                ? 'linear-gradient(90deg, #ef4444, #f97316)'
-                                : bus.passengerLoad > 65
-                                ? 'linear-gradient(90deg, #eab308, #f97316)'
-                                : 'linear-gradient(90deg, #22c55e, #00d4ff)',
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              goToMap(
+                                districtName,
+                                `${bus.lineNumber} ${bus.lineName}`,
+                                [view?.position[0] + offsetX || offsetX, 50, view?.position[2] + offsetZ || offsetZ],
+                                [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                              );
                             }}
-                          />
+                            className="p-1.5 rounded-lg text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-tech-300 hover:bg-tech-500/10 transition-all"
+                            title="查看位置"
+                          >
+                            <Locate className="w-3.5 h-3.5" />
+                          </button>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-2xl font-bold font-mono text-tech-400">
+                              {bus.arrivalMinutes}
+                              <span className="text-xs font-normal text-text-tertiary ml-0.5">分</span>
+                            </div>
+                          </div>
                         </div>
-                        <span className="text-text-secondary font-mono w-8 text-right">{bus.passengerLoad}%</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-1.5 text-text-secondary min-w-0 flex-1">
+                          <MapPin className="w-3 h-3 text-tech-400 flex-shrink-0" />
+                          <span className="truncate">下一站: {bus.nextStation}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <Users className="w-3 h-3 text-purple-400" />
+                          <div className="w-14 h-1.5 rounded-full bg-space-600/60 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${bus.passengerLoad}%`,
+                                background: bus.passengerLoad > 85
+                                  ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                                  : bus.passengerLoad > 65
+                                  ? 'linear-gradient(90deg, #eab308, #f97316)'
+                                  : 'linear-gradient(90deg, #22c55e, #00d4ff)',
+                              }}
+                            />
+                          </div>
+                          <span className="text-text-secondary font-mono w-8 text-right">{bus.passengerLoad}%</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </TechCard>
 
@@ -601,9 +670,13 @@ const TrafficPage: React.FC = () => {
               extra={<span className="text-xs text-text-tertiary">{trafficEvents.length} 条</span>}
             >
               <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                {trafficEvents.map((event) => {
+                {trafficEvents.map((event, idx) => {
                   const level = AlertBadgeLevelMap[event.level as AlertLevel] || 'info';
                   const config = getAlertLevelConfig(event.level as AlertLevel);
+                  const districtName = event.district?.name || '中心街道';
+                  const view = districtViewMap[districtName];
+                  const offsetX = (idx % 5 - 2) * 12;
+                  const offsetZ = (idx % 4 - 2) * 8;
                   return (
                     <div
                       key={event.id}
@@ -628,7 +701,24 @@ const TrafficPage: React.FC = () => {
                             </div>
                           </div>
                         </div>
-                        <ChevronRight className="w-4 h-4 text-text-tertiary opacity-0 group-hover:opacity-100 group-hover:text-tech-400 transition-all flex-shrink-0 mt-2" />
+                        <div className="flex items-center gap-1 flex-shrink-0 mt-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              goToMap(
+                                districtName,
+                                event.eventType || event.title,
+                                [view?.position[0] + offsetX || offsetX, 50, view?.position[2] + offsetZ || offsetZ],
+                                [view?.target[0] + offsetX || offsetX, 0, view?.target[2] + offsetZ || offsetZ],
+                              );
+                            }}
+                            className="p-1.5 rounded-lg text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-tech-300 hover:bg-tech-500/10 transition-all"
+                            title="定位查看"
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                          </button>
+                          <ChevronRight className="w-4 h-4 text-text-tertiary opacity-0 group-hover:opacity-100 group-hover:text-tech-400 transition-all" />
+                        </div>
                       </div>
                       <div className="flex items-center gap-3 text-[10px] text-text-tertiary pl-10.5 ml-10.5 -mt-0">
                         <div className="flex items-center gap-1">

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   RotateCcw,
   Compass,
-  Layers,
   Eye,
   Mountain,
   MapPin,
@@ -15,19 +14,17 @@ import {
   Phone,
   Clock,
 } from 'lucide-react';
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, Sky, Html, Billboard } from '@react-three/drei';
-import { Button, Modal, Tag, Space } from 'antd';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Sky } from '@react-three/drei';
+import { Button, Modal, Tag } from 'antd';
 import { useMapStore } from '@/store/useMapStore';
-import { useEventStore } from '@/store/useEventStore';
 import { cn } from '@/lib/utils';
-import { formatCoordinate, formatDateTime } from '@/utils/format';
+import { formatCoordinate } from '@/utils/format';
 import type { POI } from '@/types';
-import { pois as mockPOIs } from '@/mock';
-import CityScene from '@/components/three/CityScene';
 import LayerPanel from '@/components/three/LayerPanel';
 import FavoritePanel from '@/components/three/FavoritePanel';
 import PlaybackTimeline from '@/components/three/PlaybackTimeline';
+import CameraController from '@/components/three/CameraController';
 import Buildings from '@/components/three/Buildings';
 import RoadNetwork from '@/components/three/RoadNetwork';
 import WaterSystem from '@/components/three/WaterSystem';
@@ -212,40 +209,6 @@ const POIDetailModal: React.FC<{
       </div>
     </Modal>
   );
-};
-
-interface CameraControllerProps {
-  controlsRef: React.MutableRefObject<any>;
-}
-
-const CameraController: React.FC<CameraControllerProps> = ({ controlsRef }) => {
-  const { flyToPosition, updateCamera, cameraTarget } = useMapStore();
-  const { camera, controls } = useThree();
-  const ctrl = controls as any;
-
-  useFrame(() => {
-    if (camera) {
-      updateCamera(
-        { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        ctrl?.target
-          ? { x: ctrl.target.x, y: ctrl.target.y, z: ctrl.target.z }
-          : cameraTarget,
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (controls && camera) {
-      const t = (controls as any).target;
-      flyToPosition({
-        position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-        target: { x: t.x, y: t.y, z: t.z },
-        duration: 0,
-      });
-    }
-  }, [controls, camera, flyToPosition]);
-
-  return null;
 };
 
 const Map3DPage: React.FC = () => {

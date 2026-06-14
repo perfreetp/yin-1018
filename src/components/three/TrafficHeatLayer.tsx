@@ -1,15 +1,20 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useMapStore } from '@/store/useMapStore';
 
-interface HeatPoint {
+interface BaseHeatPoint {
   position: [number, number, number];
-  intensity: number;
+  baseIntensity: number;
   radius: number;
 }
 
-function generateHeatPoints(): HeatPoint[] {
-  const points: HeatPoint[] = [];
+interface HeatPoint extends BaseHeatPoint {
+  intensity: number;
+}
+
+function generateBaseHeatPoints(): BaseHeatPoint[] {
+  const points: BaseHeatPoint[] = [];
   const preset: Array<[number, number, number, number]> = [
     [0, 0, 0.95, 22],
     [-45, 20, 0.85, 18],
@@ -31,12 +36,40 @@ function generateHeatPoints(): HeatPoint[] {
   preset.forEach(([x, z, intensity, radius]) => {
     points.push({
       position: [x, 0.12, z],
-      intensity,
+      baseIntensity: intensity,
       radius,
     });
   });
 
   return points;
+}
+
+function getTimeSegment(hour: number): 'night' | 'morningRush' | 'day' | 'eveningRush' | 'lateNight' {
+  if (hour >= 0 && hour < 6) return 'night';
+  if (hour >= 6 && hour < 10) return 'morningRush';
+  if (hour >= 10 && hour < 16) return 'day';
+  if (hour >= 16 && hour < 20) return 'eveningRush';
+  return 'lateNight';
+}
+
+function getIntensityMultiplier(hour: number): number {
+  const segment = getTimeSegment(hour);
+  const multipliers: Record<typeof segment, number> = {
+    night: 0.5,
+    morningRush: 1.4,
+    day: 1.0,
+    eveningRush: 1.35,
+    lateNight: 0.7,
+  };
+  return multipliers[segment];
+}
+
+function getAdjustedIntensity(baseIntensity: number, hour: number, index: number): number {
+  const multiplier = getIntensityMultiplier(hour);
+  const variance = ((index * 7 + hour * 3) % 20 - 10) / 100;
+  let adjusted = baseIntensity * multiplier + variance;
+  adjusted = Math.max(0.1, Math.min(1.0, adjusted));
+  return adjusted;
 }
 
 function getHeatColor(intensity: number): string {
@@ -144,7 +177,23 @@ function Legend() {
 }
 
 export default function TrafficHeatLayer() {
-  const points = useMemo(() => generateHeatPoints(), []);
+  const { getCurrentPlaybackTime } = useMapStore();
+  const [currentHour, setCurrentHour] = useState(() => getCurrentPlaybackTime().getHours());
+  const basePoints = useMemo(() => generateBaseHeatPoints(), []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentHour(getCurrentPlaybackTime().getHours());
+    }, 500);
+    return () => clearInterval(interval);
+  }, [getCurrentPlaybackTime]);
+
+  const points = useMemo(() => {
+    return basePoints.map((bp, i) => ({
+      ...bp,
+      intensity: getAdjustedIntensity(bp.baseIntensity, currentHour, i),
+    }));
+  }, [basePoints, currentHour]);
 
   return (
     <group>

@@ -1,9 +1,11 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Html } from '@react-three/drei';
 import { useMapStore } from '@/store/useMapStore';
 import { cameraPoints } from '@/mock/maps';
 import type { POI } from '@/types';
+
+type VideoStatus = 'online' | 'offline' | 'maintenance';
 
 const statusConfig = {
   online: { color: '#00FF88', label: '在线', dot: '🟢' },
@@ -11,20 +13,55 @@ const statusConfig = {
   maintenance: { color: '#FFAA00', label: '维护', dot: '🟡' },
 };
 
+function getTimeSegment(hour: number): 'night' | 'morningRush' | 'day' | 'eveningRush' | 'lateNight' {
+  if (hour >= 0 && hour < 6) return 'night';
+  if (hour >= 6 && hour < 10) return 'morningRush';
+  if (hour >= 10 && hour < 16) return 'day';
+  if (hour >= 16 && hour < 20) return 'eveningRush';
+  return 'lateNight';
+}
+
+function getStatusForTime(baseStatus: VideoStatus, index: number, hour: number): VideoStatus {
+  const segment = getTimeSegment(hour);
+  const offlineChance: Record<typeof segment, number> = {
+    night: 0.45,
+    morningRush: 0.1,
+    day: 0.15,
+    eveningRush: 0.1,
+    lateNight: 0.35,
+  };
+  const maintenanceChance: Record<typeof segment, number> = {
+    night: 0.08,
+    morningRush: 0.03,
+    day: 0.05,
+    eveningRush: 0.03,
+    lateNight: 0.06,
+  };
+  const rand = ((index * 13 + hour * 7) % 100) / 100;
+  if (rand < offlineChance[segment]) return 'offline';
+  if (rand < offlineChance[segment] + maintenanceChance[segment]) return 'maintenance';
+  return 'online';
+}
+
 interface VideoPointMeshProps {
   point: typeof cameraPoints[number];
   index: number;
+  currentHour: number;
 }
 
-function VideoPointMesh({ point, index }: VideoPointMeshProps) {
+function VideoPointMesh({ point, index, currentHour }: VideoPointMeshProps) {
   const pulseRef = useRef<THREE.Mesh>(null);
   const rotateRef = useRef<THREE.Group>(null);
   const { setClickedPOI } = useMapStore();
-  const status = statusConfig[point.status];
+  const effectiveStatus = useMemo(
+    () => getStatusForTime(point.status, index, currentHour),
+    [point.status, index, currentHour],
+  );
+  const status = statusConfig[effectiveStatus];
 
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime();
-    if (pulseRef.current && point.status === 'online') {
+    if (pulseRef.current && effectiveStatus === 'online') {
       const scale = 1 + Math.sin(time * 3 + index) * 0.25;
       pulseRef.current.scale.set(scale, scale, scale);
       const mat = pulseRef.current.material as THREE.MeshBasicMaterial;
@@ -42,7 +79,7 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
       type: 'video_camera',
       position: { x: point.position.x, y: point.position.y, z: point.position.z },
       info: {
-        status: point.status,
+        status: effectiveStatus,
         statusLabel: status.label,
         address: point.address,
         manufacturer: point.manufacturer,
@@ -56,7 +93,7 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
 
   return (
     <group position={[point.position.x, point.position.y, point.position.z]}>
-      {point.status === 'online' && (
+      {effectiveStatus === 'online' && (
         <mesh ref={pulseRef}>
           <sphereGeometry args={[1.6, 20, 20]} />
           <meshBasicMaterial color={status.color} transparent opacity={0.4} />
@@ -67,7 +104,7 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
         <meshStandardMaterial
           color={status.color}
           emissive={status.color}
-          emissiveIntensity={point.status === 'online' ? 0.7 : 0.2}
+          emissiveIntensity={effectiveStatus === 'online' ? 0.7 : 0.2}
           metalness={0.4}
           roughness={0.3}
         />
@@ -81,8 +118,8 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
           <sphereGeometry args={[0.25, 16, 16]} />
           <meshStandardMaterial
             color="#0a1628"
-            emissive={point.status === 'online' ? '#00FF88' : '#333333'}
-            emissiveIntensity={point.status === 'online' ? 0.5 : 0}
+            emissive={effectiveStatus === 'online' ? '#00FF88' : '#333333'}
+            emissiveIntensity={effectiveStatus === 'online' ? 0.5 : 0}
             metalness={0.5}
             roughness={0.2}
           />
@@ -103,7 +140,7 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
             onClick={handleClick}
             style={{
               background: `linear-gradient(135deg, ${status.color}ee, ${status.color}99)`,
-              color: point.status === 'offline' ? '#fff' : '#0a1628',
+              color: effectiveStatus === 'offline' ? '#fff' : '#0a1628',
               padding: '5px 12px',
               borderRadius: '6px',
               fontSize: '12px',
@@ -126,10 +163,20 @@ function VideoPointMesh({ point, index }: VideoPointMeshProps) {
 }
 
 export default function VideoPoints() {
+  const { getCurrentPlaybackTime } = useMapStore();
+  const [currentHour, setCurrentHour] = useState(() => getCurrentPlaybackTime().getHours());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentHour(getCurrentPlaybackTime().getHours());
+    }, 500);
+    return () => clearInterval(interval);
+  }, [getCurrentPlaybackTime]);
+
   return (
     <group>
       {cameraPoints.map((point, i) => (
-        <VideoPointMesh key={point.id} point={point} index={i} />
+        <VideoPointMesh key={point.id} point={point} index={i} currentHour={currentHour} />
       ))}
     </group>
   );

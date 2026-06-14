@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
@@ -26,53 +26,79 @@ const SNAPSHOTS = [
 
 export default function PlaybackTimeline() {
   const {
-    currentTime,
-    isPlaying,
     playbackSpeed,
+    playhead,
     setTime,
-    togglePlayback,
+    startPlayback,
+    stopPlayback,
     setPlaybackSpeed,
+    getCurrentPlaybackTime,
   } = useMapStore();
 
+  const [displayTime, setDisplayTime] = useState<Date>(() => getCurrentPlaybackTime());
   const [showHistory, setShowHistory] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setDisplayTime(getCurrentPlaybackTime());
+    }, 100);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [getCurrentPlaybackTime]);
+
+  const isPlaying = playhead !== null;
 
   const startTime = useMemo(() => {
-    const d = new Date(currentTime);
+    const d = new Date(displayTime);
     d.setHours(0, 0, 0, 0);
     return d;
-  }, [currentTime]);
+  }, [displayTime]);
 
   const endTime = useMemo(() => {
-    const d = new Date(currentTime);
+    const d = new Date(displayTime);
     d.setHours(23, 59, 59, 999);
     return d;
-  }, [currentTime]);
+  }, [displayTime]);
 
   const currentMinutes = useMemo(() => {
-    return currentTime.getHours() * 60 + currentTime.getMinutes();
-  }, [currentTime]);
+    return displayTime.getHours() * 60 + displayTime.getMinutes();
+  }, [displayTime]);
 
   const totalMinutes = 24 * 60;
 
   const handleSliderChange = (value: number) => {
     const hours = Math.floor(value / 60);
     const minutes = value % 60;
-    const newTime = new Date(currentTime);
+    const newTime = new Date(displayTime);
     newTime.setHours(hours, minutes, 0, 0);
     setTime(newTime);
   };
 
   const handleSnapshotClick = (snapshot: typeof SNAPSHOTS[number]) => {
     const [h, m] = snapshot.time.split(':').map(Number);
-    const newTime = new Date(currentTime);
+    const newTime = new Date(displayTime);
     newTime.setHours(h, m, 0, 0);
     setTime(newTime);
   };
 
   const handleStep = (direction: 'forward' | 'backward') => {
     const step = 10 * 60 * 1000;
-    const newTime = new Date(currentTime.getTime() + (direction === 'forward' ? step : -step));
+    const newTime = new Date(displayTime.getTime() + (direction === 'forward' ? step : -step));
     setTime(newTime);
+  };
+
+  const handleTogglePlayback = () => {
+    if (isPlaying) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
   };
 
   const marks = useMemo(() => {
@@ -98,7 +124,7 @@ export default function PlaybackTimeline() {
           {speed}x
         </span>
       ),
-      onClick: () => setPlaybackSpeed(speed),
+      onClick: () => handleSpeedChange(speed),
     })),
   };
 
@@ -195,7 +221,7 @@ export default function PlaybackTimeline() {
             >
               <ClockCircleOutlined style={{ color: '#4FC3F7', fontSize: '16px' }} />
               <span style={{ color: '#E0F7FA', fontSize: '18px', fontWeight: 700, fontFamily: 'monospace' }}>
-                {format(currentTime, 'yyyy年MM月dd日 HH:mm:ss', { locale: zhCN })}
+                {format(displayTime, 'yyyy年MM月dd日 HH:mm:ss', { locale: zhCN })}
               </span>
               {isPlaying && (
                 <Badge status="processing" text={<span style={{ color: '#81C784', fontSize: '12px' }}>回放中</span>} />
@@ -272,7 +298,7 @@ export default function PlaybackTimeline() {
                     <PlayCircleOutlined style={{ fontSize: '24px' }} />
                   )
                 }
-                onClick={togglePlayback}
+                onClick={handleTogglePlayback}
                 style={{
                   width: '48px',
                   height: '48px',
@@ -368,8 +394,8 @@ export default function PlaybackTimeline() {
                   e.currentTarget.style.background = 'transparent';
                 }}
               >
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4FC3F7', margin: '0 auto 3px' }} />
-                <span style={{ color: '#78909C', fontSize: '10px' }}>{snap.time}</span>
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4FC3F7', margin: '0 auto 3px' }} />
+                  <span style={{ color: '#78909C', fontSize: '10px' }}>{snap.time}</span>
               </div>
             </Tooltip>
           ))}
