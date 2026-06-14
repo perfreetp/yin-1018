@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 
 const routeTitleMap: Record<string, { title: string; breadcrumb: string[] }> = {
   '/': { title: '运行总览', breadcrumb: ['首页', '总览'] },
+  '/overview': { title: '运行总览', breadcrumb: ['首页', '总览'] },
   '/map': { title: '数字孪生地图', breadcrumb: ['首页', '地图'] },
   '/traffic': { title: '交通态势监测', breadcrumb: ['首页', '交通'] },
   '/pipeline': { title: '管网运行监测', breadcrumb: ['首页', '管网'] },

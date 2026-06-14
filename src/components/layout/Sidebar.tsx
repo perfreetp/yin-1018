@@ -24,7 +24,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { path: '/', icon: LayoutDashboard, label: '总览' },
+  { path: '/overview', icon: LayoutDashboard, label: '总览' },
   { path: '/map', icon: Map, label: '地图' },
   { path: '/traffic', icon: Car, label: '交通' },
   { path: '/pipeline', icon: Workflow, label: '管网' },
