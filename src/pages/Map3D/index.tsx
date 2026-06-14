@@ -221,6 +221,7 @@ const Map3DPage: React.FC = () => {
     activeLayers,
     queueFlyTo,
     setAllLayers,
+    disableAllLayers,
     applyPreset,
   } = useMapStore();
   const controlsRef = useRef<any>(null);
@@ -242,6 +243,7 @@ const Map3DPage: React.FC = () => {
 
     const layerParam = params.get('layer');
     if (layerParam) {
+      disableAllLayers();
       try {
         const decoded = atob(layerParam);
         const parsed = JSON.parse(decoded);

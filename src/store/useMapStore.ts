@@ -159,7 +159,7 @@ interface MapState {
   currentPatrolRouteId: string | null;
   patrolPlayStatus: PatrolPlayStatus;
   patrolCurrentPointIndex: number;
-  patrolPaused: boolean;
+  patrolLastStatusBeforePause: 'flying' | 'staying' | null;
   patrolStayRemaining: number;
 
   toggleLayer: (layer: LayerType) => void;
@@ -199,7 +199,11 @@ interface MapState {
   pausePatrol: () => void;
   resumePatrol: () => void;
   stopPatrol: () => void;
-  advancePatrolToNext: () => void;
+  flyToPatrolIndex: (index: number) => void;
+  goToPrevPatrolPoint: () => void;
+  goToNextPatrolPoint: () => void;
+  onPatrolFlyComplete: () => void;
+  onPatrolStayComplete: () => void;
   setPatrolStayRemaining: (ms: number) => void;
 }
 
@@ -288,7 +292,7 @@ export const useMapStore = create<MapState>((set, get) => {
     currentPatrolRouteId: null,
     patrolPlayStatus: 'idle',
     patrolCurrentPointIndex: 0,
-    patrolPaused: false,
+    patrolLastStatusBeforePause: null,
     patrolStayRemaining: 0,
 
     toggleLayer: (layer) =>
@@ -502,14 +506,8 @@ export const useMapStore = create<MapState>((set, get) => {
       set({
         patrolPlayStatus: 'flying',
         patrolCurrentPointIndex: 0,
-        patrolPaused: false,
+        patrolLastStatusBeforePause: null,
         patrolStayRemaining: 0,
-      });
-      const firstPoint = route.points[0];
-      get().queueFlyTo({
-        position: firstPoint.position,
-        target: firstPoint.target,
-        duration: 2000,
       });
     },
 
@@ -518,41 +516,49 @@ export const useMapStore = create<MapState>((set, get) => {
       if (state.patrolPlayStatus === 'flying' || state.patrolPlayStatus === 'staying') {
         set({
           patrolPlayStatus: 'paused',
-          patrolPaused: true,
+          patrolLastStatusBeforePause: state.patrolPlayStatus,
         });
       }
     },
 
     resumePatrol: () => {
       const state = get();
-      if (!state.patrolPaused || state.patrolPlayStatus !== 'paused') return;
-      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
-      if (!route) return;
-      const currentPoint = route.points[state.patrolCurrentPointIndex];
-      if (!currentPoint) return;
-      if (state.patrolStayRemaining > 0) {
-        set({ patrolPlayStatus: 'staying', patrolPaused: false });
-      } else {
-        set({ patrolPlayStatus: 'flying', patrolPaused: false });
-        get().queueFlyTo({
-          position: currentPoint.position,
-          target: currentPoint.target,
-          duration: 2000,
-        });
-      }
+      if (state.patrolPlayStatus !== 'paused' || !state.patrolLastStatusBeforePause) return;
+      set({
+        patrolPlayStatus: state.patrolLastStatusBeforePause,
+        patrolLastStatusBeforePause: null,
+      });
     },
 
     stopPatrol: () => {
       set({
         patrolPlayStatus: 'idle',
         patrolCurrentPointIndex: 0,
-        patrolPaused: false,
+        patrolLastStatusBeforePause: null,
         patrolStayRemaining: 0,
         flyTarget: null,
       });
     },
 
-    advancePatrolToNext: () => {
+    flyToPatrolIndex: (index) => {
+      const state = get();
+      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
+      if (!route || index < 0 || index >= route.points.length) return;
+      set({
+        patrolCurrentPointIndex: index,
+        patrolPlayStatus: 'flying',
+        patrolStayRemaining: 0,
+        patrolLastStatusBeforePause: null,
+      });
+    },
+
+    goToPrevPatrolPoint: () => {
+      const state = get();
+      if (state.patrolCurrentPointIndex <= 0) return;
+      get().flyToPatrolIndex(state.patrolCurrentPointIndex - 1);
+    },
+
+    goToNextPatrolPoint: () => {
       const state = get();
       const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
       if (!route) return;
@@ -561,17 +567,26 @@ export const useMapStore = create<MapState>((set, get) => {
         get().stopPatrol();
         return;
       }
-      const nextPoint = route.points[nextIndex];
+      get().flyToPatrolIndex(nextIndex);
+    },
+
+    onPatrolFlyComplete: () => {
+      const state = get();
+      if (state.patrolPlayStatus !== 'flying') return;
+      const route = state.patrolRoutes.find((r) => r.id === state.currentPatrolRouteId);
+      if (!route) return;
+      const currentPoint = route.points[state.patrolCurrentPointIndex];
+      if (!currentPoint) return;
       set({
-        patrolCurrentPointIndex: nextIndex,
-        patrolPlayStatus: 'flying',
-        patrolStayRemaining: 0,
+        patrolPlayStatus: 'staying',
+        patrolStayRemaining: currentPoint.stayDuration,
       });
-      get().queueFlyTo({
-        position: nextPoint.position,
-        target: nextPoint.target,
-        duration: 2000,
-      });
+    },
+
+    onPatrolStayComplete: () => {
+      const state = get();
+      if (state.patrolPlayStatus !== 'staying') return;
+      get().goToNextPatrolPoint();
     },
 
     setPatrolStayRemaining: (ms) => {

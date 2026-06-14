@@ -1,11 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { useMapStore } from '@/store/useMapStore';
+import type { PatrolPlayStatus } from '@/store/useMapStore';
 import type { CameraPosition, CameraTarget } from '@/types';
-
-let stayTimer: number | null = null;
-let stayStartTimestamp: number = 0;
-let stayDurationMs: number = 0;
 
 export function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -46,7 +43,9 @@ interface CameraControllerProps {
 export default function CameraController({ controlsRef }: CameraControllerProps) {
   const { camera, controls } = useThree();
   const lastSyncRef = useRef(0);
-  const prevFlyTargetRef = useRef<any>(null);
+  const stayStartRef = useRef<number>(0);
+  const stayRemainingRef = useRef<number>(0);
+  const prevStatusRef = useRef<PatrolPlayStatus | null>(null);
   const ctrl = (controlsRef?.current ?? controls) as any;
   const {
     flyTarget,
@@ -55,14 +54,12 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
     consumePendingFocus,
     queueFlyTo,
     patrolPlayStatus,
-    patrolPaused,
     patrolCurrentPointIndex,
     patrolRoutes,
     currentPatrolRouteId,
-    patrolStayRemaining,
     setPatrolStayRemaining,
-    advancePatrolToNext,
-    stopPatrol,
+    onPatrolFlyComplete,
+    onPatrolStayComplete,
   } = useMapStore();
 
   useEffect(() => {
@@ -80,79 +77,62 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
   }, []);
 
   useEffect(() => {
-    if (stayTimer) {
-      window.clearTimeout(stayTimer);
-      stayTimer = null;
-    }
+    const prevStatus = prevStatusRef.current;
 
-    if (patrolPlayStatus === 'staying' && !patrolPaused) {
+    if (patrolPlayStatus === 'staying' && prevStatus !== 'staying') {
       const route = patrolRoutes.find((r) => r.id === currentPatrolRouteId);
       if (!route) return;
       const point = route.points[patrolCurrentPointIndex];
       if (!point) return;
-
-      const remaining = patrolStayRemaining > 0 ? patrolStayRemaining : point.stayDuration;
-      stayDurationMs = remaining;
-      stayStartTimestamp = Date.now();
-      setPatrolStayRemaining(remaining);
-
-      stayTimer = window.setTimeout(() => {
-        advancePatrolToNext();
-        stayTimer = null;
-      }, remaining);
-    } else if (patrolPaused && patrolPlayStatus === 'paused') {
-      if (stayTimer) {
-        const elapsed = Date.now() - stayStartTimestamp;
-        const newRemaining = Math.max(0, stayDurationMs - elapsed);
-        setPatrolStayRemaining(newRemaining);
-        window.clearTimeout(stayTimer);
-        stayTimer = null;
-      }
-    } else if (patrolPlayStatus === 'idle') {
-      if (stayTimer) {
-        window.clearTimeout(stayTimer);
-        stayTimer = null;
+      if (prevStatus === 'paused') {
+        stayStartRef.current = Date.now();
+        setPatrolStayRemaining(stayRemainingRef.current);
+      } else {
+        stayStartRef.current = Date.now();
+        stayRemainingRef.current = point.stayDuration;
+        setPatrolStayRemaining(point.stayDuration);
       }
     }
 
-    return () => {
-      if (stayTimer) {
-        window.clearTimeout(stayTimer);
-        stayTimer = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patrolPlayStatus, patrolPaused, patrolCurrentPointIndex]);
-
-  useEffect(() => {
-    if (
-      prevFlyTargetRef.current &&
-      !flyTarget &&
-      patrolPlayStatus === 'flying' &&
-      !patrolPaused
-    ) {
-      const route = patrolRoutes.find((r) => r.id === currentPatrolRouteId);
-      if (!route) return;
-      const point = route.points[patrolCurrentPointIndex];
-      if (!point) return;
-
-      const state = useMapStore.getState();
-      const nextIndex = state.patrolCurrentPointIndex + 1;
-      if (nextIndex >= route.points.length) {
-        stopPatrol();
-        return;
-      }
-
-      useMapStore.setState({
-        patrolPlayStatus: 'staying',
-      });
+    if (patrolPlayStatus === 'paused' && prevStatus === 'staying') {
+      const elapsed = Date.now() - stayStartRef.current;
+      stayRemainingRef.current = Math.max(0, stayRemainingRef.current - elapsed);
+      setPatrolStayRemaining(stayRemainingRef.current);
     }
-    prevFlyTargetRef.current = flyTarget;
+
+    prevStatusRef.current = patrolPlayStatus;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flyTarget]);
+  }, [patrolPlayStatus, patrolCurrentPointIndex]);
 
   useFrame(() => {
     const now = Date.now();
+
+    if (patrolPlayStatus === 'paused' && flyTarget) {
+      clearFlyTarget();
+      return;
+    }
+
+    if (patrolPlayStatus === 'flying' && !flyTarget) {
+      const route = patrolRoutes.find((r) => r.id === currentPatrolRouteId);
+      if (!route) return;
+      const point = route.points[patrolCurrentPointIndex];
+      if (!point) return;
+      queueFlyTo({
+        position: point.position,
+        target: point.target,
+        duration: 2000,
+      });
+      return;
+    }
+
+    if (patrolPlayStatus === 'staying') {
+      const elapsed = now - stayStartRef.current;
+      const remaining = Math.max(0, stayRemainingRef.current - elapsed);
+      setPatrolStayRemaining(remaining);
+      if (remaining <= 0) {
+        onPatrolStayComplete();
+      }
+    }
 
     if (flyTarget) {
       const dx = flyTarget.startPosition.x - camera.position.x;
@@ -192,6 +172,9 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
 
       if (t >= 1) {
         clearFlyTarget();
+        if (useMapStore.getState().patrolPlayStatus === 'flying') {
+          useMapStore.getState().onPatrolFlyComplete();
+        }
       }
     } else {
       if (now - lastSyncRef.current >= 100) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   BranchesOutlined,
   PlusOutlined,
@@ -32,15 +32,12 @@ export default function PatrolPanel() {
   const [pointModalOpen, setPointModalOpen] = useState(false);
   const [routeForm] = Form.useForm();
   const [pointForm] = Form.useForm();
-  const stayTimerRef = useRef<number | null>(null);
-  const stayStartRef = useRef<number>(0);
 
   const {
     patrolRoutes,
     currentPatrolRouteId,
     patrolPlayStatus,
     patrolCurrentPointIndex,
-    patrolPaused,
     patrolStayRemaining,
     cameraPosition,
     cameraTarget,
@@ -53,52 +50,14 @@ export default function PatrolPanel() {
     pausePatrol,
     resumePatrol,
     stopPatrol,
-    advancePatrolToNext,
-    setPatrolStayRemaining,
+    goToPrevPatrolPoint,
+    goToNextPatrolPoint,
     flyToPosition,
   } = useMapStore();
 
   const currentRoute = patrolRoutes.find((r) => r.id === currentPatrolRouteId) || null;
   const totalPoints = currentRoute?.points.length || 0;
-  const displayIndex = patrolPlayStatus === 'idle' ? 0 : patrolCurrentPointIndex + 1;
-
-  useEffect(() => {
-    return () => {
-      if (stayTimerRef.current) {
-        window.clearTimeout(stayTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (patrolPlayStatus === 'staying' && !patrolPaused && currentRoute) {
-      const currentPoint = currentRoute.points[patrolCurrentPointIndex];
-      if (currentPoint) {
-        stayStartRef.current = Date.now();
-        const remaining = patrolStayRemaining > 0 ? patrolStayRemaining : currentPoint.stayDuration;
-        setPatrolStayRemaining(remaining);
-        if (stayTimerRef.current) {
-          window.clearTimeout(stayTimerRef.current);
-        }
-        stayTimerRef.current = window.setTimeout(() => {
-          advancePatrolToNext();
-        }, remaining);
-      }
-    } else if (patrolPaused && patrolPlayStatus === 'paused') {
-      if (stayTimerRef.current) {
-        window.clearTimeout(stayTimerRef.current);
-        const elapsed = Date.now() - stayStartRef.current;
-        const newRemaining = Math.max(0, patrolStayRemaining - elapsed);
-        setPatrolStayRemaining(newRemaining);
-      }
-    } else if (patrolPlayStatus === 'idle') {
-      if (stayTimerRef.current) {
-        window.clearTimeout(stayTimerRef.current);
-        stayTimerRef.current = null;
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patrolPlayStatus, patrolPaused, patrolCurrentPointIndex]);
+  const displayIndex = patrolCurrentPointIndex + 1;
 
   const handleCreateRoute = async () => {
     try {
@@ -181,20 +140,11 @@ export default function PatrolPanel() {
   };
 
   const handlePrevPoint = () => {
-    if (!currentRoute || patrolCurrentPointIndex <= 0) return;
-    const prevIndex = patrolCurrentPointIndex - 1;
-    const prevPoint = currentRoute.points[prevIndex];
-    if (prevPoint) {
-      flyToPosition({
-        position: prevPoint.position,
-        target: prevPoint.target,
-        duration: 1500,
-      });
-    }
+    goToPrevPatrolPoint();
   };
 
   const handleNextPoint = () => {
-    advancePatrolToNext();
+    goToNextPatrolPoint();
   };
 
   const getStatusText = () => {
@@ -376,7 +326,7 @@ export default function PatrolPanel() {
                   type="text"
                   icon={<StepBackwardOutlined />}
                   onClick={handlePrevPoint}
-                  disabled={patrolCurrentPointIndex <= 0 || patrolPlayStatus === 'idle'}
+                  disabled={patrolCurrentPointIndex <= 0}
                   style={{ color: '#4FC3F7' }}
                 />
                 {patrolPlayStatus === 'idle' || patrolPlayStatus === 'paused' ? (
@@ -385,7 +335,7 @@ export default function PatrolPanel() {
                     shape="circle"
                     size="large"
                     icon={<PlayCircleOutlined style={{ fontSize: '24px' }} />}
-                    onClick={patrolPaused ? resumePatrol : startPatrol}
+                    onClick={patrolPlayStatus === 'paused' ? resumePatrol : startPatrol}
                     disabled={!currentRoute || currentRoute.points.length === 0}
                     style={{
                       width: '48px',
@@ -424,7 +374,7 @@ export default function PatrolPanel() {
                   type="text"
                   icon={<StepForwardOutlined />}
                   onClick={handleNextPoint}
-                  disabled={patrolCurrentPointIndex >= totalPoints - 1 || patrolPlayStatus === 'idle'}
+                  disabled={!currentRoute || patrolCurrentPointIndex >= totalPoints - 1}
                   style={{ color: '#4FC3F7' }}
                 />
               </div>
@@ -465,7 +415,7 @@ export default function PatrolPanel() {
               dataSource={currentRoute.points}
               locale={{ emptyText: '暂无巡检点，点击上方「添加当前视角」按钮' }}
               renderItem={(point, index) => {
-                const isActive = patrolCurrentPointIndex === index && patrolPlayStatus !== 'idle';
+                const isActive = patrolCurrentPointIndex === index;
                 const color = getColorForIndex(index);
                 return (
                   <List.Item
