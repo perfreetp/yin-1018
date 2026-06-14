@@ -1,0 +1,103 @@
+/* ============================================
+ * CSS变量 - 深空科技风主题变量
+ * ============================================ */
+
+:root {
+  /* ========== 深空色系 - 背景层 ========== */
+  --space-bg-deep: #020617;
+  --space-bg: #0a0e27;
+  --space-bg-light: #111835;
+  --space-bg-card: rgba(17, 24, 53, 0.75);
+  --space-surface: #1a2348;
+  --space-surface-light: #243060;
+  --space-border: rgba(64, 89, 160, 0.35);
+  --space-border-light: rgba(90, 120, 200, 0.25);
+
+  /* ========== 科技色系 - 主色 ========== */
+  --tech-primary: #00d4ff;
+  --tech-primary-dark: #00a8cc;
+  --tech-primary-light: #6be7ff;
+  --tech-secondary: #3b82f6;
+  --tech-accent: #8b5cf6;
+  --tech-cyan: #06b6d4;
+  --tech-green: #10b981;
+  --tech-yellow: #fbbf24;
+
+  /* 渐变色系 */
+  --tech-gradient-primary: linear-gradient(135deg, #00d4ff 0%, #3b82f6 100%);
+  --tech-gradient-accent: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+  --tech-gradient-data: linear-gradient(180deg, #00d4ff 0%, #10b981 50%, #fbbf24 100%);
+
+  /* 文字渐变 */
+  --text-gradient-blue: linear-gradient(90deg, #00d4ff, #8b5cf6);
+  --text-gradient-green: linear-gradient(90deg, #10b981, #00d4ff);
+  --text-gradient-gold: linear-gradient(90deg, #fbbf24, #f97316);
+
+  /* ========== 告警色系 ========== */
+  --alert-critical: #ef4444;
+  --alert-critical-bg: rgba(239, 68, 68, 0.15);
+  --alert-warning: #f59e0b;
+  --alert-warning-bg: rgba(245, 158, 11, 0.15);
+  --alert-notice: #3b82f6;
+  --alert-notice-bg: rgba(59, 130, 246, 0.15);
+  --alert-info: #10b981;
+  --alert-info-bg: rgba(16, 185, 129, 0.15);
+
+  /* ========== 文字色系 ========== */
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-disabled: #475569;
+  --text-inverse: #020617;
+
+  /* ========== 字体变量 ========== */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-family-number: 'DIN', 'Oswald', 'Arial Narrow', sans-serif;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 36px;
+  --font-size-5xl: 48px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ========== 阴影变量 ========== */
+  --shadow-glow-primary: 0 0 20px rgba(0, 212, 255, 0.3);
+  --shadow-glow-accent: 0 0 20px rgba(139, 92, 246, 0.3);
+  --shadow-glow-critical: 0 0 20px rgba(239, 68, 68, 0.3);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: 0 8px 32px rgba(0, 212, 255, 0.15);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-btn: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  /* ========== 边框圆角 ========== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ========== 间距变量 ========== */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+
+  /* ========== 过渡动画 ========== */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
+}
